@@ -3,7 +3,7 @@
 """
 Created on Sun Feb 18 15:37:09 2018
 
-@author: woradanue nakdee, 6020411004
+@author: pleng
 """
 
 from datetime import datetime
@@ -58,7 +58,7 @@ class Wallet:
         call = requests.get('https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH&tsyms=USD') #request api
         call2 = requests.get('https://free.currencyconverterapi.com/api/v5/convert?q=THB_USD&compact=ultra')
         print(datetime.now())
-        api_data = call.json() #parsing json
+        api_data = call.json()
         api_data2 = call2.json()
         btc_print = api_data['BTC']['USD'] 
         eth_print = api_data['ETH']['USD']
