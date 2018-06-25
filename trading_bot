@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Mar 14 11:47:06 2018
+"""
+
+from datetime import datetime, timedelta
+import time
+import requests
+from hashlib import sha256
+
+class BxTrade():
+    
+    '''Trading bot. Cryptocurrency: Ripple. Using API and trading platform from bx.in.th
+    '''
+    
+    def __init__(self, key = '', secret = '', base = '', sell = 0.0, buy = 0.0, profit = 0.0, stop_loss = 0.0):
+        self._key = key #api key
+        self._secret = secret #api secret key
+        self._base = base #https://bx.in.th/api/
+        self._buy = buy
+        self._sell = sell
+        self._profit = profit
+        self._stop_loss = stop_loss
+    
+    def now(self): #get current date nad time
+        now = datetime.now()
+        return now
+    
+    def get_nonce(self):
+        self._nonce = str(int(time.time() * 1e6)) #Return a nonce based on the current time. A nonce should only use once and should always be increasing.
+        return self._nonce
+    
+    def encode(self):
+        self.get_nonce()
+        m = sha256()
+        m.update(f'{self._key}{self._nonce}{self._secret}'.encode())
+        self._signature = m.hexdigest() 
+        return self._signature
+    
+    def simple_request(self): #using public api
+        r = requests.get(self._base)
+        return r.json()
+    
+    def signed_request(self): #using private api
+        self.encode()
+        self._data = {'key':self._key,
+                      'nonce':self._nonce,
+                      'signature':self._signature
+                }
+        return self._data
+    
+    def market_data(self):
+        market_data = self.simple_request() 
+        pair = market_data['25']['secondary_currency'] #Ripple
+        change = market_data['25']['change']
+        self._current = market_data['25']['last_price']
+        return f'Currency: {pair}, Price change {change}%, Current Price {self._current} Baht'
+    
+    def history(self):
+        pairing_id = 25
+        date = datetime.strftime(datetime.now() - timedelta(1), '%Y-%m-%d') #get yesterday date: YYYY-MM-DD
+        url = f'https://bx.in.th/api/tradehistory/?pairing={pairing_id}&date={date}' 
+        history = requests.get(url)
+        history_info = history.json()
+        self._close = history_info['data']['close'] #return yesterday cl0se price
+        return self._close
+    
+    def balance(self):
+        self.signed_request()
+        url = self._base + 'balance/'
+        balance_data = requests.post(url, self._data)
+        balance = balance_data.json()
+        self._thb_balance = float(balance['balance']['THB']['available'])
+        self._xrp_balance = float(balance['balance']['XRP']['available'])
+        #return balance
+        return f'Balance:\nThai Baht: {self._thb_balance}\nRipple (XRP):{self._xrp_balance}'
+    
+    def automate(self, tick_interval = 0, trade = 0):
+        print(f'Starting trading bot, ticking every {tick_interval} seconds')
+        self.balance()
+        #check balance first. if float(bath) < 10.0, float(xpr) < 0.3, don't have enough to trade.
+        if self._thb_balance < 10.0 or self._xrp_balance < 0.3 :
+            print('Not enough Baht or XRP in balance')
+        else:
+            while trade > 0:
+                try:
+                    start = time.time()
+                    self.tick()
+                    stop = time.time()
+                    # interval, sleep between call
+                    if stop - start < tick_interval:
+                        time.sleep(tick_interval - (stop-start)) 
+                        trade -= 1
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                
+    def tick(self): #comparing yesterday price to current price
+        self.history()
+        self.market_data()
+        last_price = float(self._close) #yesterday close price
+        current = self._current #current rate/price
+        if last_price < current:
+            if current > last_price * self._profit:
+                self.sell()
+                print(f'{self.now()}\nSelling, take profit {self._sell_info}')
+            else:
+                self.buy()
+                print(f'{self.now()}\nBuying {self._buy_info}')
+        elif last_price > current: 
+            if last_price > current * self._stop_loss:
+                self.sell()
+                print(f'{self.now()}\nSelling, stop-loss {self._sell_info}')
+            else:
+                print(f'{self.now()}\nHold')
+        else:
+            print(f'{self.now()}\nHold')
+    
+    def transaction(self): #my transaction history
+        self.signed_request()
+        url = self._base + 'history/'
+        transaction = {'currency': 'XRP',
+                'type' : 'trade'
+                }
+        data = self._data.copy()
+        data.update(transaction)
+        transaction_call = requests.post(url, data)
+        transaction_info = transaction_call.json()
+        return transaction_info
+    
+    def buy(self, buy = 0.0):
+        self.market_data()
+        self._rate = float(self._current)
+        buy = {'pairing': 25,
+               'type': 'buy',
+               'amount': self._buy,
+               'rate': self._rate #current exchange rate from market data
+                }
+        self.signed_request()
+        url = self._base + 'order/'
+        data = self._data.copy()
+        data.update(buy)
+        buy_call = requests.post(url, data)
+        self._buy_info = buy_call.json()
+        return self._buy_info
+    
+    def sell(self, sell = 0.0):
+        self.market_data()
+        self._rate = float(self._current)
+        sell = {'pairing': 25,
+               'type': 'sell',
+               'amount': self._sell,
+               'rate': self._rate
+                }
+        self.signed_request()
+        url = self._base + 'order/'
+        data = self._data.copy()
+        data.update(sell)
+        sell_call = requests.post(url, data)
+        self._sell_info = sell_call.json()
+        return self._sell_info
+
+def main():
+    
+    API_KEY = '******'
+    API_SECRET_KEY = '******'
+    API_URL = 'https://bx.in.th/api/' 
+    
+    profit = 1.5 #profit margin % plus 50% = 1.5
+    stop_loss = 0.8 #sell if down more than % minus 20% = 0.8 
+    sell = 0.9 #minimum sell amount = 0.3 XRP 
+    buy = 20.0 #minimum buy amount = 10 baht 
+    
+    tick_interval = 120 #seconds, 3600 = 1 hr
+    trade = 5 # number of trades make with tick_interval/secons apart
+    
+    bot1 = BxTrade(API_KEY, API_SECRET_KEY, API_URL, sell, buy, profit, stop_loss)
+    print(bot1.automate(tick_interval, trade))
+    print(bot1.balance())
+    
+main()
