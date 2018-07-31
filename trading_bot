@@ -28,7 +28,7 @@ class BxTrade():
         return now
     
     def get_nonce(self):
-        self._nonce = str(int(time.time() * 1e6)) #Return a nonce based on the current time. A nonce should only use once and should always be increasing.
+        self._nonce = str(int(time.time() * 1e6)) #Return a nonce/coin based on the current time. A nonce should only use once and should always be increasing.
         return self._nonce
     
     def encode(self):
